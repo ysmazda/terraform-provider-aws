@@ -131,7 +131,7 @@ import (
 	"github.com/aws/aws-sdk-go/service/xray"
 	awsbase "github.com/hashicorp/aws-sdk-go-base"
 	"github.com/hashicorp/terraform/helper/logging"
-	"github.com/hashicorp/terraform/terraform"
+	"github.com/hashicorp/terraform/httpclient"
 )
 
 type Config struct {
@@ -160,6 +160,8 @@ type Config struct {
 	SkipRequestingAccountId bool
 	SkipMetadataApiCheck    bool
 	S3ForcePathStyle        bool
+
+	terraformVersion string
 }
 
 type AWSClient struct {
@@ -289,6 +291,26 @@ type AWSClient struct {
 	xrayconn                            *xray.XRay
 }
 
+func userAgentProducts(uap []*httpclient.UserAgentProduct) []*awsbase.UserAgentProduct {
+	products := []*awsbase.UserAgentProduct{
+		{Name: "APN", Version: "1.0"},
+	}
+
+	for _, product := range uap {
+		p := &awsbase.UserAgentProduct{
+			Name:    product.Name,
+			Version: product.Version,
+		}
+		if product.Comment != "" {
+			p.Extra = []string{product.Comment}
+		}
+
+		products = append(products, p)
+	}
+
+	return products
+}
+
 // Client configures and returns a fully initialized AWSClient
 func (c *Config) Client() (interface{}, error) {
 	// Get the auth and region. This can fail if keys/regions were not
@@ -298,6 +320,8 @@ func (c *Config) Client() (interface{}, error) {
 			return nil, err
 		}
 	}
+
+	uaProducts := httpclient.UserAgent(c.terraformVersion).Products()
 
 	log.Println("[INFO] Building AWS auth structure")
 	awsbaseConfig := &awsbase.Config{
@@ -319,11 +343,7 @@ func (c *Config) Client() (interface{}, error) {
 		SkipRequestingAccountId: c.SkipRequestingAccountId,
 		StsEndpoint:             c.Endpoints["sts"],
 		Token:                   c.Token,
-		UserAgentProducts: []*awsbase.UserAgentProduct{
-			{Name: "APN", Version: "1.0"},
-			{Name: "HashiCorp", Version: "1.0"},
-			{Name: "Terraform", Version: terraform.VersionString()},
-		},
+		UserAgentProducts:       userAgentProducts(uaProducts),
 	}
 
 	sess, accountID, partition, err := awsbase.GetSessionWithAccountIDAndPartition(awsbaseConfig)
